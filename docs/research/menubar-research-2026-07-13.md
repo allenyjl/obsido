@@ -1,0 +1,62 @@
+---
+created: 2026-07-13
+updated: 2026-07-13
+---
+
+# Research: macOS menu bar app for an Obsidian markdown todo file
+
+Purpose: findings from a 9-angle web research sweep (existing apps, Swift menu bar architecture, markdown rendering, file watching, cross-platform alternatives, Obsidian integration, checkbox write-back, distribution, naming) that informed the Obsido v1 design. Reference material — see `plan/specs/obsido-v1.md` for the decisions actually adopted.
+
+# Research Brief: macOS Menu Bar App for an Obsidian Markdown Todo File
+
+## 1. Buy vs. Build: This Largely Exists Already
+
+The niche is well-populated, and two open-source Swift apps come very close to the exact spec:
+
+- **MDMenuBar** ([github.com/maparker/MDMenuBar](https://github.com/maparker/MDMenuBar)) — menu bar app rendering one user-chosen .md file in a live-reloading WKWebView panel, global hotkey, LSUIElement, remembers the file. **View-only** (no checkbox toggling).
+- **Flowbar** ([github.com/SagarSDagdu/flowbar](https://github.com/SagarSDagdu/flowbar), also [github.com/triptu/flowbar](https://github.com/triptu/flowbar) / [tushar.ai/posts/flowbar](https://tushar.ai/posts/flowbar/)) — native menubar app pointed at a folder inside an Obsidian vault, renders checkboxes as **toggleable todos that write back to the .md file**, plus an "Open in Obsidian" button. Limitation: top-level folder files only.
+
+Adjacent prior art: [wilbeibi/obsidian-todos-menubar](https://github.com/wilbeibi/obsidian-todos-menubar) (same concept), [whywaita/logseq-todo](https://github.com/whywaita/logseq-todo) (read-only equivalent for Logseq), [sksizer/Annado](https://github.com/sksizer/Annado) (vault-as-database task manager with write-back), [Santofer/Obsync](https://github.com/Santofer/Obsync) (Obsidian Tasks parsing reference), [tgoodwin/obsidian-jot](https://github.com/tgoodwin/obsidian-jot) (cleanest minimal MenuBarExtra codebase to crib).
+
+Zero-code escapes worth 30 minutes before building: a **SwiftBar plugin** (~10-line script; `md=true`, `checked=true`, and webview popover support — [github.com/swiftbar/SwiftBar](https://github.com/swiftbar/SwiftBar), [issue #261](https://github.com/swiftbar/SwiftBar/issues/261)); existing xbar markdown-todo plugins ([xbarapp.com/docs/plugins/Lifestyle/Todo.html](https://xbarapp.com/docs/plugins/Lifestyle/Todo.html)); and the **Raycast Obsidian extension** (menu bar item + Quick Look rendering, [raycast.com/marcjulian/obsidian](https://www.raycast.com/marcjulian/obsidian)) — though its menu bar item lists note links rather than rendering the note body. Commercial apps (ToDoBar, SideNotes, Antinote) use their own data stores, not an external .md file.
+
+**Verdict:** Try Flowbar first (or MDMenuBar if view-only suffices). Build only for customization/fun — in which case the design pattern is well-trodden and low-risk.
+
+## 2. Recommended Tech Stack: Native Swift
+
+- **SwiftUI `MenuBarExtra` (macOS 14+ target)** — native is ~1–5 MB / ~20–40 MB RAM vs. Tauri ~8 MB / ~60–100 MB and Electron ~150–250 MB disk / ~150–400 MB RAM ([gethopp.app/blog/tauri-vs-electron](https://www.gethopp.app/blog/tauri-vs-electron)). Targeting macOS 14 unlocks `@Observable`, `SMAppService`, and `openSettings` ([nilcoalescing.com](https://nilcoalescing.com/blog/BuildAMacOSMenuBarUtilityInSwiftUI)).
+- **Parsing: apple/swift-markdown** ([github.com/swiftlang/swift-markdown](https://github.com/swiftlang/swift-markdown)) — actively maintained, exposes `ListItem.checkbox` and per-node **source ranges**, exactly what's needed for tappable checkboxes that write back. No Swift renderer ships interactive checkboxes; MarkdownUI's task lists are display-only and the library just entered maintenance mode ([github.com/gonzalezreal/swift-markdown-ui](https://github.com/gonzalezreal/swift-markdown-ui)). Optionally add MarkdownUI 2.4.1 for non-task content (shares the swift-cmark dependency). Skip Down (no GFM task lists) and `AttributedString(markdown:)` as document renderer (block intents ignored by `Text`).
+- **Extras:** sindresorhus/KeyboardShortcuts for a global hotkey; `SMAppService.mainApp.register()` for launch-at-login; free Personal Team signing (no notarization needed for a locally built app; rebuild yearly when the cert expires — [developer.apple.com/forums/thread/705932](https://developer.apple.com/forums/thread/705932)).
+- If avoiding Swift entirely: Tauri v2 + tauri-plugin-positioner is the only non-native path with near-native footprint ([ahkohd/tauri-macos-menubar-app-example](https://github.com/ahkohd/tauri-macos-menubar-app-example/blob/v2/README.md)). Rule out Electron (Chromium tax) and Python rumps (cannot render rich content; fragile packaging).
+
+## 3. Recommended Architecture
+
+- **Menu bar UI:** `MenuBarExtra` with `.menuBarExtraStyle(.window)` (the `.menu` style can't do custom layout), fixed `.frame` (~340×450) to dodge the ScrollView height-collapse bug, `LSUIElement = YES` in Info.plist (never `setActivationPolicy` in `App.init()` — NSApp is nil and it crashes), Quit button in the panel. Add [orchetect/MenuBarExtraAccess](https://github.com/orchetect/MenuBarExtraAccess) only if programmatic dismissal is needed; graduate to NSStatusItem+NSPopover only if MenuBarExtra's walls are hit ([Apple docs](https://developer.apple.com/documentation/swiftui/menubarextra), [techconcepts.org guide](https://techconcepts.org/blog/macos-menu-bar-guide)).
+- **Rendering:** parse with swift-markdown; render task lines as custom SwiftUI rows (button + text); regex-preprocess Obsidian extras (wikilinks, `==highlights==`, frontmatter, #tags) — nothing in the Swift ecosystem renders them natively.
+- **File access:** non-sandboxed (personal app) — plain path string in UserDefaults; at most a one-time TCC prompt for Documents/iCloud. Security-scoped bookmarks only if App Store distribution is ever wanted ([Apple sandbox docs](https://developer.apple.com/documentation/security/accessing-files-from-the-macos-app-sandbox)).
+- **Live reload:** baseline = re-read the file every popover open (this alone makes the app correct). Enhancement = `DispatchSource.makeFileSystemObjectSource` on an `O_EVTONLY` fd, mask `[.write, .extend, .delete, .rename]`, strong reference held, **re-arm on .delete/.rename** to survive atomic saves/sync replacements, debounce ~100–300 ms ([SO 11355144 pattern](https://stackoverflow.com/questions/11355144/file-monitoring-using-grand-central-dispatch)).
+- **Write-back ("line surgery"):** read fresh at click time → verify the target line still matches the rendered task (bail and re-render if not) → flip only the bracket char, reassembling from regex captures (Operon's regex preserves indent/marker/spacing: [plain-checkbox-lines.ts](https://github.com/hasanyilmaz/operon/blob/main/src/core/plain-checkbox-lines.ts)) → atomic write (`Data.write(options: .atomic)`). Never round-trip through a parser (breaks frontmatter/formatting — [bradtraversy.dev devlog](https://bradtraversy.dev/devlog/2026-04-23-mission-control-atomic-writes)). Only ever write `' '`/`'x'`; render Obsidian custom statuses (`[-]`, `[/]`…) read-only.
+- **Obsidian integration:** zero-dependency core — read/write disk directly (Obsidian's watcher re-indexes external changes in ~1–2 s). "Open in Obsidian" = `NSWorkspace.shared.open` on `obsidian://open?path=<encoded absolute path>` — resolves the vault automatically, no vault-name config needed ([Obsidian URI docs](https://obsidianmd-obsidian-help.mintlify.app/extending/obsidian-uri)). Advanced URI and Local REST API plugins are optional power-ups only (both require user plugin installs; REST API dies when Obsidian quits — [obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api)).
+
+## 4. Key Risks / Gotchas
+
+- **Atomic-save inode trap:** fd-based watchers go silent after a temp-file+rename save — one `.delete`/`.rename` event, then nothing. Re-arm the watcher (cancel, retry-reopen, recreate), or watch the parent directory via FSEvents. Your own atomic writes also create a new inode, tripping your own watcher ([fsnotify #17](https://github.com/fsnotify/fsnotify/issues/17)).
+- **Sync conflicts, iCloud especially:** naive writes during iCloud sync corrupted files in 3/40 test runs; `NSFileCoordinator` with `.forMerging` (writing to the coordinator's safeURL) gave 0/40 ([dev.to write-path teardown](https://dev.to/simple_memo/taking-apart-the-write-path-into-another-apps-icloud-folder-2pdp)). Obsidian auto-merges external changes against its ~2 s autosave window, and Obsidian Sync's diff-match-patch merge has documented duplication/loss reports on multi-device todo files ([forum thread](https://forum.obsidian.md/t/obsidian-sync-incorrectly-duplicates-sections-of-files/94732?page=5)) — hence tiny, immediate, verified single-line writes.
+- **MenuBarExtra `.window` limitations:** no first-party programmatic open/close (open FB11984872 — [mirror](https://github.com/feedback-assistant/reports/issues/383)); open/close detection behavior changed between macOS 14 and 15; ScrollView height-collapse on second open; no resize handle. Community patches: MenuBarExtraAccess, fluid-menu-bar-extra.
+- **Accessory-app focus:** TextFields in the popover won't take keystrokes until `NSApp.activate(ignoringOtherApps: true)`; the Settings window needs an activation-policy dance (or just inline settings in the panel — [steipete.me](https://steipete.me/posts/2025/showing-settings-from-macos-menu-bar-items)).
+- **Sandboxing (if adopted):** bookmarks silently decay (must recreate on `isStale`), unbalanced `startAccessingSecurityScopedResource` calls leak kernel resources, and macOS 15.0 had a bookmark-resolution hang bug ([SwiftLee](https://www.avanderlee.com/swift/security-scoped-bookmarks-for-url-access/)) — all avoided by staying unsandboxed.
+- **Never batch/debounce writes**, never cache parsed state across popover opens, and don't rename/move the file externally (breaks wikilinks).
+
+## 5. Repo Name Candidates
+
+Per Obsidian's trademark policy, keep "Obsidian" (and "Obsi-"/"-sidian") out of the name; say "for Obsidian" only in the README ([docs.obsidian.md/Reference/Manifest](https://docs.obsidian.md/Reference/Manifest), [obsidian.md/brand](https://obsidian.md/brand)).
+
+| Rank | Name | Collision notes (GitHub exact-name check, 2026-07-13) |
+|---|---|---|
+| 1 | **todopeek** | Zero collisions; says exactly what it does |
+| 2 | **vault-peek** | Zero collisions; Obsidian "vault" association without the trademark |
+| 3 | **glancebar** | Zero collisions (bare "glance" is crowded: glance.md, MAS Quick Look app) |
+| 4 | **todoglance** | Zero collisions |
+| 5 | **marklist** | Zero collisions |
+
+Hard avoid: **todobar** (three products: [todobarapp.com](https://todobarapp.com/), todobar.app, `brew install todobar`), **obsidian-tray** (~320-star plugin), **obsidian-menubar** ([taken](https://github.com/bbdaniels/obsidian-menubar)), bare **peek**/**glance**, **bartender**. Backup: **vaultbar** (only two dead 0–1-star unrelated repos).

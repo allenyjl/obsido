@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Xcode / build
+*.xcodeproj/
+!project.yml
+build/
+DerivedData/
+*.xcresult
+
+# SPM
+.build/
+.swiftpm/
+
+# Secrets / local config
+.env
+.env.*
+*.local.plist
