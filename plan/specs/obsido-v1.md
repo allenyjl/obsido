@@ -7,7 +7,7 @@ updated: 2026-07-13
 
 ## Status
 
-Accepted
+Implemented — 2026-07-13. Build system deviates from this spec (pure SPM instead of XcodeGen/xcodebuild; KeyboardShortcuts pinned 1.10.0; no swift-markdown dependency — regex classification proved sufficient): see `docs/decisions/0001-spm-clt-build.md`. App shell is NSStatusItem+NSPopover (the spec's named fallback) rather than MenuBarExtra, chosen up front for programmatic open/close, trivial pinning, and focus control.
 
 ## Purpose
 

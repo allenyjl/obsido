@@ -10,15 +10,15 @@ Note: the folder may still be named `Obsidian_Todo_list_toolbar`; the project/ap
 
 ## Stack
 
-- Swift / SwiftUI, macOS 14+ target, `MenuBarExtra` with `.window` style, `LSUIElement = YES`, **not sandboxed**.
-- Dependencies (SPM): `apple/swift-markdown` (parsing), `sindresorhus/KeyboardShortcuts` (global hotkey), `orchetect/MenuBarExtraAccess` (pin / programmatic dismissal). Do not add others without stating why.
-- Project generated with XcodeGen from `project.yml`; build with `xcodebuild`.
+- Swift / SwiftUI, macOS 14+ target, AppKit shell (`NSStatusItem` + `NSPopover` hosting SwiftUI), `LSUIElement = YES`, **not sandboxed**.
+- Dependency (SPM): `sindresorhus/KeyboardShortcuts` **pinned to 1.10.0** (newer versions need Xcode's #Preview plugin; this machine builds with CLT only). Line classification is regex-based — no swift-markdown dependency. Do not add dependencies without stating why.
+- Pure SPM build, no Xcode required: `scripts/bundle.sh` assembles `build/Obsido.app` from the SPM binary + `Support/Info.plist` and ad-hoc signs it. See `docs/decisions/0001-spm-clt-build.md`.
 
 ## Commands
 
-- `./scripts/check.sh` — full verification: regenerate project, build, run unit tests.
-- `./scripts/test.sh` — unit tests only.
-- Until those exist, see `plan/specs/obsido-v1.md` for the intended build steps.
+- `./scripts/check.sh` — full verification: build, unit tests, assemble app bundle.
+- `./scripts/test.sh` — unit tests only (carries the CLT Swift Testing -F/-rpath flags; plain `swift test` fails without Xcode).
+- Run the app: `open build/Obsido.app` after check/bundle.
 
 ## Layout
 
