@@ -87,8 +87,13 @@ private struct LineRow: View {
                     if isDeletable {
                         deleteButton
                             .opacity(isHovering ? 1 : 0)
+                            .allowsHitTesting(isHovering)
                     }
                 }
+                // Hover must track the row's full rectangle — without an
+                // explicit shape, the invisible button leaves a dead zone that
+                // ends the hover just as the cursor reaches it.
+                .contentShape(Rectangle())
                 .onHover { isHovering = $0 }
             }
         }
