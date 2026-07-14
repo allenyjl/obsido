@@ -40,9 +40,9 @@ import Testing
         let external = "- [ ] alpha\n- [ ] added by obsidian\n"
         try external.data(using: .utf8)!.write(to: url)
 
-        #expect(throws: DocumentFile.Error.conflict) {
-            try file.write(doc)
-        }
+        var thrown: DocumentFile.Error?
+        do { try file.write(doc) } catch let error as DocumentFile.Error { thrown = error }
+        #expect(thrown == .conflict)
         #expect(try String(contentsOf: url, encoding: .utf8) == external)
     }
 
@@ -60,9 +60,9 @@ import Testing
 
     @Test func readMissingFileThrows() {
         var file = DocumentFile(url: URL(fileURLWithPath: "/nonexistent/obsido/todo.md"))
-        #expect(throws: (any Swift.Error).self) {
-            try file.read()
-        }
+        var didThrow = false
+        do { _ = try file.read() } catch { didThrow = true }
+        #expect(didThrow)
     }
 
     @Test func consecutiveWritesWithoutRereadSucceed() throws {

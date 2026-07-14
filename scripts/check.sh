@@ -3,6 +3,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build
-swift test
+./scripts/test.sh
 ./scripts/bundle.sh release
 echo "check.sh: all green"

@@ -128,29 +128,35 @@ import Testing
     @Test func toggleFlipsExactlyOneCharacter() {
         let original = "# H\n- [ ] alpha\n- [x] beta\n"
         var doc = TodoDocument(text: original)
-        #expect(doc.toggleTask(at: 1))
+        let toggledAlpha = doc.toggleTask(at: 1)
+        #expect(toggledAlpha)
         #expect(doc.text == "# H\n- [x] alpha\n- [x] beta\n")
-        #expect(doc.toggleTask(at: 2))
+        let toggledBeta = doc.toggleTask(at: 2)
+        #expect(toggledBeta)
         #expect(doc.text == "# H\n- [x] alpha\n- [ ] beta\n")
     }
 
     @Test func togglePreservesIndentAndCRLF() {
         var doc = TodoDocument(text: "\t  - [ ] deep\r\n")
-        #expect(doc.toggleTask(at: 0))
+        let toggled = doc.toggleTask(at: 0)
+        #expect(toggled)
         #expect(doc.text == "\t  - [x] deep\r\n")
     }
 
     @Test func toggleUppercaseXBecomesUnchecked() {
         var doc = TodoDocument(text: "- [X] a")
-        #expect(doc.toggleTask(at: 0))
+        let toggled = doc.toggleTask(at: 0)
+        #expect(toggled)
         #expect(doc.text == "- [ ] a")
     }
 
     @Test func toggleRefusesCustomStatusAndNonTasks() {
         let original = "- [-] custom\nplain\n"
         var doc = TodoDocument(text: original)
-        #expect(!doc.toggleTask(at: 0))
-        #expect(!doc.toggleTask(at: 1))
+        let toggledCustom = doc.toggleTask(at: 0)
+        let toggledPlain = doc.toggleTask(at: 1)
+        #expect(!toggledCustom)
+        #expect(!toggledPlain)
         #expect(doc.text == original)
     }
 }
