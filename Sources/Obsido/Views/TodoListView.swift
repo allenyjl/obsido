@@ -3,35 +3,45 @@ import SwiftUI
 /// The per-line live-preview editor: the focused line is a raw-markdown text
 /// field; every other line renders styled. Checkboxes toggle without entering
 /// edit mode.
+///
+/// Rows live in a ScrollView/LazyVStack, NOT a List: on macOS, swapping row
+/// content and driving @FocusState inside List's NSTableView-backed cells
+/// silently breaks (clicking a line did nothing) — plain stacks are reliable.
 struct TodoListView: View {
     @ObservedObject var store: DocumentStore
-    @FocusState private var focusedLine: UUID?
+    /// Which line renders as a raw editor. Focus follows one runloop later —
+    /// setting @FocusState toward a field created in the same update is flaky.
+    @State private var editingID: UUID?
+    @FocusState private var focusedID: UUID?
     @State private var newTaskText = ""
     @FocusState private var newTaskFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             if let document = store.document {
-                List {
-                    ForEach(document.lines) { line in
-                        LineRow(
-                            line: line,
-                            isFocused: focusedLine == line.id,
-                            store: store,
-                            focusedLine: $focusedLine
-                        )
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
-                    }
-                    .onMove { source, destination in
-                        store.move(from: source, to: destination)
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-
-                Divider()
                 addTaskRow
+                Divider()
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(document.lines) { line in
+                            LineRow(
+                                line: line,
+                                isEditing: editingID == line.id,
+                                store: store,
+                                editingID: $editingID,
+                                focusedID: $focusedID
+                            )
+                            .padding(.horizontal, 8)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Click in empty space below the lines: commit any edit.
+                    focusedID = nil
+                    editingID = nil
+                }
             }
         }
     }
@@ -46,7 +56,7 @@ struct TodoListView: View {
                 .onSubmit {
                     let text = newTaskText.trimmingCharacters(in: .whitespaces)
                     guard !text.isEmpty else { return }
-                    store.appendTask(text: text)
+                    store.addTaskToTop(text: text)
                     newTaskText = ""
                     newTaskFocused = true // keep focus for rapid entry
                 }
@@ -59,15 +69,16 @@ struct TodoListView: View {
 /// One line of the document.
 private struct LineRow: View {
     let line: TodoDocument.Line
-    let isFocused: Bool
+    let isEditing: Bool
     let store: DocumentStore
-    var focusedLine: FocusState<UUID?>.Binding
+    @Binding var editingID: UUID?
+    var focusedID: FocusState<UUID?>.Binding
 
     @State private var draft = ""
 
     var body: some View {
         Group {
-            if isFocused {
+            if isEditing {
                 rawEditor
             } else {
                 rendered
@@ -81,24 +92,40 @@ private struct LineRow: View {
         TextField("", text: $draft)
             .textFieldStyle(.plain)
             .font(.system(.body, design: .monospaced))
-            .focused(focusedLine, equals: line.id)
+            .focused(focusedID, equals: line.id)
             .onAppear { draft = line.raw }
             .onSubmit { commitAndAddBelow() }
             .onExitCommand {
                 draft = line.raw // discard edit
-                focusedLine.wrappedValue = nil
+                stopEditing(commit: false)
             }
             .onKeyPress(.delete, phases: .down) { _ in
                 guard draft.isEmpty else { return .ignored }
-                focusedLine.wrappedValue = store.remove(id: line.id)
+                let previous = store.remove(id: line.id)
+                editingID = previous
+                if let previous {
+                    Task { @MainActor in focusedID.wrappedValue = previous }
+                }
                 return .handled
             }
-            .onChange(of: focusedLine.wrappedValue) { _, newValue in
-                // Focus moved elsewhere: commit whatever was typed.
-                if newValue != line.id {
-                    store.commit(id: line.id, raw: draft)
+            .onChange(of: focusedID.wrappedValue) { _, newValue in
+                // Focus moved elsewhere (another line, add-row, or nil): commit.
+                if newValue != line.id, isEditing {
+                    stopEditing(commit: true)
                 }
             }
+    }
+
+    private func stopEditing(commit: Bool) {
+        if commit {
+            store.commit(id: line.id, raw: draft)
+        }
+        if editingID == line.id {
+            editingID = nil
+        }
+        if focusedID.wrappedValue == line.id {
+            focusedID.wrappedValue = nil
+        }
     }
 
     private func commitAndAddBelow() {
@@ -110,7 +137,11 @@ private struct LineRow: View {
         } else {
             newRaw = ""
         }
-        focusedLine.wrappedValue = store.commitAndInsertBelow(id: line.id, draft: draft, newRaw: newRaw)
+        let newID = store.commitAndInsertBelow(id: line.id, draft: draft, newRaw: newRaw)
+        editingID = newID
+        if let newID {
+            Task { @MainActor in focusedID.wrappedValue = newID }
+        }
     }
 
     // MARK: - Rendered mode
@@ -129,6 +160,7 @@ private struct LineRow: View {
                 .padding(.top, 4)
         case .blank:
             Color.clear
+                .frame(maxWidth: .infinity)
                 .frame(height: 8)
                 .contentShape(Rectangle())
                 .onTapGesture { focus() }
@@ -136,6 +168,8 @@ private struct LineRow: View {
             Text(line.raw)
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
                 .onTapGesture { focus() }
         case .other:
             renderedText(MarkdownStyler.styledInline(line.raw))
@@ -172,7 +206,9 @@ private struct LineRow: View {
 
     private func focus() {
         draft = line.raw
-        focusedLine.wrappedValue = line.id
+        editingID = line.id
+        // Defer focus one runloop so the TextField exists when focus lands.
+        Task { @MainActor in focusedID.wrappedValue = line.id }
     }
 
     private var indentWidth: CGFloat {

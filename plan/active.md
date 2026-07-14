@@ -15,15 +15,15 @@ Obsido v1 — implemented (M0–M6). Awaiting owner's hands-on feedback.
 
 ## State
 
-- **Complete:** all seven milestones. Menu bar app with per-line live-preview editor, tappable checkboxes with single-character write-back, quick-add row, drag reorder, multi-file dropdown, settings page (file list, launch at login, hotkey recorder), pin, Open in Obsidian, file watcher surviving atomic saves, conflict-checked atomic writes. 29 unit tests green. Built and running on the owner's machine.
+- **Complete:** all seven milestones. Menu bar app with per-line live-preview editor, tappable checkboxes with single-character write-back, quick-add row (top of popover, inserts under the first heading), multi-file dropdown, settings page (file list, launch at login, hotkey recorder), pin, Open in Obsidian, file watcher surviving atomic saves, conflict-checked atomic writes. 37 unit tests green. Built and running on the owner's machine.
 - **Build system deviation from spec:** pure SPM + `scripts/bundle.sh` instead of XcodeGen/xcodebuild (no Xcode on machine) — see `docs/decisions/0001-spm-clt-build.md`.
-- **Commands run:** `./scripts/check.sh` green (build + 29 tests + bundle). Runtime smoke-tested: app survives demo-file load, external in-place edit, and atomic replace with watcher re-arm.
-- **Verified only manually/partially:** visual appearance, click/keyboard interactions (Enter/Esc/Backspace flows, drag reorder, focus behavior in the accessory popover) — no UI-automation tooling available in the build environment (no Screen Recording permission, no Xcode UI tests). Owner should exercise these.
+- **Post-v1 fix (2026-07-13):** owner reported clicking a line did nothing. Root cause: rows lived in a SwiftUI `List`; on macOS, swapping row content + programmatic `@FocusState` inside List's NSTableView cells silently fails. Editor now uses ScrollView/LazyVStack with explicit `editingID` state and one-runloop-deferred focus. **Drag-reorder was dropped with `List.onMove`** (was the pre-flagged flakiest interaction; re-add via custom drag if missed). Quick-add now inserts at the top of the list (`TodoDocument.firstTaskInsertionIndex()` — after frontmatter + first leading heading) instead of appending.
+- **Commands run:** `./scripts/check.sh` green (build + 37 tests + bundle). Runtime smoke-tested: app survives demo-file load, external in-place edit, and atomic replace with watcher re-arm.
+- **Verified only manually/partially:** visual appearance and click/keyboard interactions (Enter/Esc/Backspace flows, click-to-edit focus) — no UI-automation tooling in the build environment. Owner is verifying hands-on.
 
 ## Known risks / watch items
 
-- TextField focus in the accessory-app popover: `NSApp.activate` + `makeKey` are called on show, but first-click focus quirks are possible — the top pre-identified risk, unverifiable without hands-on use.
-- Drag-reorder via SwiftUI `List.onMove` in an NSPopover is the flakiest interaction; ship-acceptable to drop if it misbehaves.
+- Click-to-edit after the List→ScrollView rewrite is pending owner confirmation.
 - `settings.selectedPath` Picker binding uses `String?` tags — verify switching works with 2+ files configured.
 
 ## Next recommended step

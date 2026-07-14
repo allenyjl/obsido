@@ -95,6 +95,20 @@ public struct TodoDocument: Equatable {
         reclassify()
     }
 
+    /// Where a task added "to the top" belongs: after frontmatter, leading
+    /// blanks, and the first leading heading (with its trailing blanks) —
+    /// i.e. the new task becomes the first item of the top list.
+    public func firstTaskInsertionIndex() -> Int {
+        var i = 0
+        while i < lines.count, lines[i].kind == .frontmatter { i += 1 }
+        while i < lines.count, lines[i].kind == .blank, i + 1 < lines.count { i += 1 }
+        if i < lines.count, case .heading = lines[i].kind {
+            i += 1
+            while i < lines.count, lines[i].kind == .blank, i + 1 < lines.count { i += 1 }
+        }
+        return min(i, lines.count)
+    }
+
     // MARK: - Classification
 
     private mutating func reclassify() {

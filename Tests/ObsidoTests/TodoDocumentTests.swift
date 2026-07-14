@@ -198,3 +198,46 @@ import Testing
         #expect(doc.lines[0].id == idBefore)
     }
 }
+
+@Suite struct TopInsertionTests {
+    private func index(_ text: String) -> Int {
+        TodoDocument(text: text).firstTaskInsertionIndex()
+    }
+
+    @Test func plainListInsertsAtZero() {
+        #expect(index("- [ ] a\n- [ ] b\n") == 0)
+    }
+
+    @Test func emptyFileInsertsAtZero() {
+        #expect(index("") == 0)
+    }
+
+    @Test func skipsFrontmatter() {
+        #expect(index("---\nkey: v\n---\n- [ ] a\n") == 3)
+    }
+
+    @Test func skipsLeadingHeadingAndBlanks() {
+        // 0:"# Today" 1:"" 2:"- [ ] a" → new task becomes first list item
+        #expect(index("# Today\n\n- [ ] a\n") == 2)
+    }
+
+    @Test func skipsFrontmatterBlanksHeadingBlanks() {
+        // 0-2 frontmatter, 3 blank, 4 heading, 5 blank, 6 first task
+        #expect(index("---\nk: v\n---\n\n# Today\n\n- [ ] a\n") == 6)
+    }
+
+    @Test func headingOnlyFileInsertsAfterHeading() {
+        #expect(index("# Today\n") == 1)
+    }
+
+    @Test func secondHeadingIsNotSkipped() {
+        // Only the FIRST leading heading is part of the "top" — a later
+        // section ("# Later") must stay below the inserted task.
+        let text = "# Today\n\n- [ ] a\n\n# Later\n- [ ] z\n"
+        #expect(index(text) == 2)
+    }
+
+    @Test func plainParagraphFileInsertsAtTop() {
+        #expect(index("some intro text\n- [ ] a\n") == 0)
+    }
+}

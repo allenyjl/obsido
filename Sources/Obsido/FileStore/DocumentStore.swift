@@ -131,16 +131,13 @@ final class DocumentStore: ObservableObject {
         }
     }
 
-    /// Appends a task at the end (before a trailing blank final line, so files
-    /// ending in "\n" stay that way). Returns the new line's id.
+    /// Inserts a new task at the top of the list (after frontmatter and the
+    /// first leading heading). Returns the new line's id.
     @discardableResult
-    func appendTask(text: String) -> UUID? {
+    func addTaskToTop(text: String) -> UUID? {
         var newID: UUID?
         apply { doc in
-            var insertAt = doc.lines.count
-            if let last = doc.lines.last, last.raw.isEmpty, doc.lines.count > 1 {
-                insertAt -= 1
-            }
+            let insertAt = doc.firstTaskInsertionIndex()
             doc.insertLine("- [ ] \(text)", at: insertAt)
             newID = doc.lines[insertAt].id
         }
