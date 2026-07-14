@@ -75,14 +75,49 @@ private struct LineRow: View {
     var focusedID: FocusState<UUID?>.Binding
 
     @State private var draft = ""
+    @State private var isHovering = false
 
     var body: some View {
         Group {
             if isEditing {
                 rawEditor
             } else {
-                rendered
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    rendered
+                    if isDeletable {
+                        deleteButton
+                            .opacity(isHovering ? 1 : 0)
+                    }
+                }
+                .onHover { isHovering = $0 }
             }
+        }
+    }
+
+    /// Frontmatter lines can't be deleted one-by-one — a half-deleted YAML
+    /// block corrupts the file header. Everything else can.
+    private var isDeletable: Bool {
+        line.kind != .frontmatter
+    }
+
+    private var deleteButton: some View {
+        Button {
+            deleteLine(handingFocusBack: false)
+        } label: {
+            Image(systemName: "trash")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Delete line")
+    }
+
+    private func deleteLine(handingFocusBack: Bool) {
+        let previous = store.remove(id: line.id)
+        guard handingFocusBack else { return }
+        editingID = previous
+        if let previous {
+            Task { @MainActor in focusedID.wrappedValue = previous }
         }
     }
 
@@ -99,13 +134,10 @@ private struct LineRow: View {
                 draft = line.raw // discard edit
                 stopEditing(commit: false)
             }
-            .onKeyPress(.delete, phases: .down) { _ in
-                guard draft.isEmpty else { return .ignored }
-                let previous = store.remove(id: line.id)
-                editingID = previous
-                if let previous {
-                    Task { @MainActor in focusedID.wrappedValue = previous }
-                }
+            .onKeyPress(.delete, phases: .down) { press in
+                // ⌘Delete kills the whole line; plain Backspace only once empty.
+                guard press.modifiers.contains(.command) || draft.isEmpty else { return .ignored }
+                deleteLine(handingFocusBack: true)
                 return .handled
             }
             .onChange(of: focusedID.wrappedValue) { _, newValue in
